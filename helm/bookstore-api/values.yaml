@@ -1,0 +1,29 @@
+# Number of application pods
+replicaCount: 1
+
+# Docker image settings
+image:
+  repository: ksekwele/bookstore-api
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Service settings
+service:
+  type: ClusterIP
+  port: 8080
+
+# Ingress settings
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: bookstore.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+# ConfigMap values (environment-based)
+config:
+  DATABASE_URL: "sqlite:///./books.db"
+  LOG_LEVEL: "INFO"
+  PAGE_SIZE: "10"

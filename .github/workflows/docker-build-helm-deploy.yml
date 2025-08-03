@@ -1,0 +1,58 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE_NAME=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/bookstore-api:latest
+          docker build -t $IMAGE_NAME .
+          docker push $IMAGE_NAME
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create Kind Cluster
+        uses: helm/kind-action@v1
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: v1.29.0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.14.0
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install bookstore ./helm/bookstore-api \
+            --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/bookstore-api \
+            --set image.tag=latest
+
+      - name: Wait for deployment rollout
+        run: kubectl rollout status deployment/bookstore-api --timeout=60s
+
+      - name: Test API endpoint
+        run: |
+          kubectl port-forward svc/bookstore-api 8080:8080 &
+          sleep 5
+          curl -f http://localhost:8080/books/ || exit 1
