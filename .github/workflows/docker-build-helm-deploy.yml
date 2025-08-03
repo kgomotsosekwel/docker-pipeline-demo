@@ -1,3 +1,69 @@
+# name: CI/CD Pipeline
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+# jobs:
+#   docker:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Log in to DockerHub
+#         uses: docker/login-action@v2
+#         with:
+#           username: ${{ secrets.DOCKERHUB_USERNAME }}
+#           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+#       - name: Build and push Docker image
+#         run: |
+#           IMAGE_NAME=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/bookstore-api:latest
+#           docker build -t $IMAGE_NAME .
+#           docker push $IMAGE_NAME
+
+#   deploy:
+#     runs-on: ubuntu-latest
+#     needs: docker
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Create Kind Cluster
+#         uses: helm/kind-action@v1
+
+#       - name: Install kubectl
+#         uses: azure/setup-kubectl@v3
+#         with:
+#           version: v1.29.0
+
+#       - name: Install Helm
+#         uses: azure/setup-helm@v3
+#         with:
+#           version: v3.14.0
+
+#       - name: Deploy with Helm
+#         run: |
+#           helm upgrade --install bookstore ./helm/bookstore-api \
+#             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/bookstore-api \
+#             --set image.tag=latest
+
+#       - name: Wait for deployment rollout
+#         run: |
+#           DEPLOYMENT_NAME=$(kubectl get deploy -l app.kubernetes.io/name=bookstore-api -o jsonpath='{.items[0].metadata.name}')
+#           echo "Detected Deployment: $DEPLOYMENT_NAME"
+#           kubectl rollout status deployment/$DEPLOYMENT_NAME --timeout=60s
+
+#       - name: Port-forward and test API
+#         run: |
+#           SERVICE_NAME=$(kubectl get svc -l app.kubernetes.io/name=bookstore-api -o jsonpath='{.items[0].metadata.name}')
+#           echo "Detected Service: $SERVICE_NAME"
+#           kubectl port-forward svc/$SERVICE_NAME 8080:8080 &
+#           sleep 5
+#           curl -f http://localhost:8080/books/ || exit 1
+
 name: CI/CD Pipeline
 
 on:
@@ -56,10 +122,55 @@ jobs:
           echo "Detected Deployment: $DEPLOYMENT_NAME"
           kubectl rollout status deployment/$DEPLOYMENT_NAME --timeout=60s
 
-      - name: Port-forward and test API
+      - name: Install jq (if not present)
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Port-forward and CRUD tests
         run: |
           SERVICE_NAME=$(kubectl get svc -l app.kubernetes.io/name=bookstore-api -o jsonpath='{.items[0].metadata.name}')
           echo "Detected Service: $SERVICE_NAME"
+
+          # Port-forward in the background
           kubectl port-forward svc/$SERVICE_NAME 8080:8080 &
           sleep 5
-          curl -f http://localhost:8080/books/ || exit 1
+
+          echo "=== Test: Get all books (may not be empty) ==="
+          curl -f http://localhost:8080/books/ | tee all_books.json
+
+          echo "=== Test: Create a book ==="
+          CREATE_RESPONSE=$(curl -s -X POST http://localhost:8080/books/ \
+            -H "Content-Type: application/json" \
+            -d '{"title":"CI/CD Test Book","author":"Pipeline","description":"Test book creation","price":10.99}')
+          echo $CREATE_RESPONSE
+
+          BOOK_ID=$(echo $CREATE_RESPONSE | jq -r '.id')
+          if [ "$BOOK_ID" = "null" ] || [ -z "$BOOK_ID" ]; then
+            echo "Book creation failed!"
+            exit 1
+          fi
+
+          echo "=== Test: Get created book ==="
+          GET_RESPONSE=$(curl -s http://localhost:8080/books/$BOOK_ID)
+          echo $GET_RESPONSE | jq .
+          TITLE=$(echo $GET_RESPONSE | jq -r '.title')
+          if [ "$TITLE" != "CI/CD Test Book" ]; then
+            echo "Expected book title 'CI/CD Test Book' but got $TITLE"
+            exit 1
+          fi
+
+          echo "=== Test: Update book ==="
+          UPDATE_RESPONSE=$(curl -s -X PUT http://localhost:8080/books/$BOOK_ID \
+            -H "Content-Type: application/json" \
+            -d '{"title":"Updated Pipeline Book","author":"Pipeline","price":12.50}')
+          echo $UPDATE_RESPONSE | jq .
+
+          echo "=== Test: Delete book ==="
+          DELETE_RESPONSE=$(curl -s -X DELETE http://localhost:8080/books/$BOOK_ID)
+          echo $DELETE_RESPONSE
+          SUCCESS=$(echo $DELETE_RESPONSE | jq -r '.ok')
+          if [ "$SUCCESS" != "true" ]; then
+            echo "Delete failed"
+            exit 1
+          fi
+
+          echo "All CRUD tests passed!"
