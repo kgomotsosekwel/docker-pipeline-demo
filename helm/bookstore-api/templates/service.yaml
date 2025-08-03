@@ -2,10 +2,14 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "bookstore-api.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "bookstore-api.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   type: {{ .Values.service.type }}
   selector:
-    app: {{ include "bookstore-api.name" . }}
+    app.kubernetes.io/name: {{ include "bookstore-api.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
   ports:
     - port: {{ .Values.service.port }}
       targetPort: 8080
