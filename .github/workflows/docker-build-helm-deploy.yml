@@ -48,9 +48,13 @@ jobs:
             --set image.repository=${{ secrets.DOCKERHUB_USERNAME }}/bookstore-api \
             --set image.tag=latest
 
+      # - name: Wait for deployment rollout
+      #   run: kubectl rollout status deployment/bookstore-api --timeout=60s
       - name: Wait for deployment rollout
-        run: kubectl rollout status deployment/bookstore-api --timeout=60s
-
+        run: |
+          DEPLOYMENT_NAME=$(kubectl get deploy -l app.kubernetes.io/name=bookstore-api -o jsonpath='{.items[0].metadata.name}')
+          kubectl rollout status deployment/$DEPLOYMENT_NAME --timeout=60s
+          
       - name: Test API endpoint
         run: |
           kubectl port-forward svc/bookstore-api 8080:8080 &

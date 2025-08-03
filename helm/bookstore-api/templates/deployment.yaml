@@ -3,16 +3,19 @@ kind: Deployment
 metadata:
   name: {{ include "bookstore-api.fullname" . }}
   labels:
-    app: {{ include "bookstore-api.name" . }}
+    app.kubernetes.io/name: {{ include "bookstore-api.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: {{ include "bookstore-api.name" . }}
+      app.kubernetes.io/name: {{ include "bookstore-api.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
   template:
     metadata:
       labels:
-        app: {{ include "bookstore-api.name" . }}
+        app.kubernetes.io/name: {{ include "bookstore-api.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
     spec:
       containers:
         - name: bookstore-api
